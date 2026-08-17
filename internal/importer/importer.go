@@ -38,25 +38,30 @@ func (s *Service) ImportRows(guideID, actor string, rows []store.ImportRow) (Rep
 			report.Errors = append(report.Errors, fmt.Errorf("row %d: %w", index, err))
 			return report, ErrImportStopped
 		}
-		defer reader.Close()
-		if err := s.validateRow(reader, guideID, row); err != nil {
-			report.Rejected++
-			report.Errors = append(report.Errors, fmt.Errorf("row %d: %w", index, err))
-			continue
-		}
-		_, created, err := s.store.ImportVisitor(row, guideID)
-		if err != nil {
-			report.Errors = append(report.Errors, fmt.Errorf("row %d: %w", index, err))
-			return report, ErrImportStopped
-		}
-		report.Processed++
-		if created {
-			report.Created++
-		} else {
-			report.Updated++
-		}
-		if err := s.audit(guideID, actor, row, report.Processed); err != nil {
-			report.Errors = append(report.Errors, err)
+		rowErr := func() error {
+			defer reader.Close()
+			if err := s.validateRow(reader, guideID, row); err != nil {
+				report.Rejected++
+				report.Errors = append(report.Errors, fmt.Errorf("row %d: %w", index, err))
+				return nil
+			}
+			_, created, err := s.store.ImportVisitor(row, guideID)
+			if err != nil {
+				return fmt.Errorf("row %d: %w", index, err)
+			}
+			report.Processed++
+			if created {
+				report.Created++
+			} else {
+				report.Updated++
+			}
+			if err := s.audit(guideID, actor, row, report.Processed); err != nil {
+				return err
+			}
+			return nil
+		}()
+		if rowErr != nil {
+			report.Errors = append(report.Errors, rowErr)
 			return report, ErrImportStopped
 		}
 	}
