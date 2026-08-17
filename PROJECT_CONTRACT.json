@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "metrics": {
+    "production_loc": 2306,
+    "production_files": 27,
+    "production_packages": 11,
+    "test_files": 12,
+    "production_functions": 150,
+    "decision_points": 296
+  },
+  "persistence": {
+    "module": "go.etcd.io/bbolt",
+    "entities": [
+      "WeddingGuide",
+      "VisitorRecord",
+      "Blessing",
+      "AuditEntry"
+    ],
+    "reopen_test": "TestPersistenceSurvivesReopen"
+  },
+  "workflows": [
+    {
+      "steps": [
+        "submit an editor update",
+        "persist the WeddingGuide revision",
+        "publish and open the guest page",
+        "query the resulting AuditEntry timeline"
+      ],
+      "test": "TestWorkflowOne"
+    },
+    {
+      "steps": [
+        "open the published guest guide",
+        "resolve the seating button action",
+        "submit and persist a Blessing",
+        "query guest actions from the audit store"
+      ],
+      "test": "TestWorkflowTwo"
+    },
+    {
+      "steps": [
+        "post a visitor batch import",
+        "persist each VisitorRecord",
+        "read the imported visitors from bbolt",
+        "query corresponding import audit entries"
+      ],
+      "test": "TestWorkflowThree"
+    }
+  ]
+}
