@@ -33,34 +33,45 @@ func New(repository *store.Store, now clock.Clock, generator *ids.Generator) *Se
 func (s *Service) ImportRows(guideID, actor string, rows []store.ImportRow) (Report, error) {
 	report := Report{Errors: make([]error, 0)}
 	for index, row := range rows {
-		reader, err := s.store.OpenReader()
-		if err != nil {
-			report.Errors = append(report.Errors, fmt.Errorf("row %d: %w", index, err))
-			return report, ErrImportStopped
-		}
-		defer reader.Close()
-		if err := s.validateRow(reader, guideID, row); err != nil {
-			report.Rejected++
-			report.Errors = append(report.Errors, fmt.Errorf("row %d: %w", index, err))
-			continue
-		}
-		_, created, err := s.store.ImportVisitor(row, guideID)
-		if err != nil {
-			report.Errors = append(report.Errors, fmt.Errorf("row %d: %w", index, err))
-			return report, ErrImportStopped
-		}
-		report.Processed++
-		if created {
-			report.Created++
-		} else {
-			report.Updated++
-		}
-		if err := s.audit(guideID, actor, row, report.Processed); err != nil {
-			report.Errors = append(report.Errors, err)
-			return report, ErrImportStopped
+		if err := s.processRow(guideID, actor, index, row, &report); err != nil {
+			return report, err
 		}
 	}
 	return report, nil
+}
+
+// processRow handles a single import row. Opening and closing the reader is
+// scoped to this call so the reader slot is released as soon as the row is
+// done — never held across rows. This keeps a batch from exhausting the
+// store's active-reader limit before every record is imported and audited.
+func (s *Service) processRow(guideID, actor string, index int, row store.ImportRow, report *Report) error {
+	reader, err := s.store.OpenReader()
+	if err != nil {
+		report.Errors = append(report.Errors, fmt.Errorf("row %d: %w", index, err))
+		return ErrImportStopped
+	}
+	defer reader.Close()
+	if err := s.validateRow(reader, guideID, row); err != nil {
+		report.Rejected++
+		report.Errors = append(report.Errors, fmt.Errorf("row %d: %w", index, err))
+		return nil
+	}
+	_, created, err := s.store.ImportVisitor(row, guideID)
+	if err != nil {
+		report.Errors = append(report.Errors, fmt.Errorf("row %d: %w", index, err))
+		return ErrImportStopped
+	}
+	report.Processed++
+	if created {
+		report.Created++
+	} else {
+		report.Updated++
+	}
+	if err := s.audit(guideID, actor, row, report.Processed); err != nil {
+		report.Errors = append(report.Errors, err)
+		return ErrImportStopped
+	}
+	return nil
 }
 
 func (s *Service) validateRow(reader *store.Reader, guideID string, row store.ImportRow) error {
